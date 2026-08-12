@@ -9,8 +9,11 @@
 #include <sstream>
 #include <stdexcept>
 
+#include <arpa/inet.h>
 #include <fcntl.h>
+#include <netinet/in.h>
 #include <poll.h>
+#include <sys/socket.h>
 #include <sys/ioctl.h>
 #include <termios.h>
 #include <unistd.h>
@@ -70,6 +73,16 @@ PixhawkConnection::PixhawkConnection(std::string device, int baud)
     }
 }
 
+PixhawkConnection::PixhawkConnection(uint16_t udp_port, std::string bind_address)
+    : _device(std::move(bind_address)), _baud(0), _udp_port(udp_port) {
+    if (_device.empty()) {
+        throw std::invalid_argument("UDP bind address must not be empty");
+    }
+    if (udp_port == 0) {
+        throw std::invalid_argument("UDP port must be between 1 and 65535");
+    }
+}
+
 PixhawkConnection::~PixhawkConnection() {
     close();
 }
@@ -77,6 +90,7 @@ PixhawkConnection::~PixhawkConnection() {
 PixhawkConnection::PixhawkConnection(PixhawkConnection&& other) noexcept
     : _device(std::move(other._device)),
       _baud(other._baud),
+      _udp_port(other._udp_port),
       _fd(other._fd),
       _status(other._status),
       _message_queue(std::move(other._message_queue)) {
@@ -88,6 +102,7 @@ PixhawkConnection& PixhawkConnection::operator=(PixhawkConnection&& other) noexc
         close();
         _device = std::move(other._device);
         _baud = other._baud;
+        _udp_port = other._udp_port;
         _fd = other._fd;
         _status = other._status;
         _message_queue = std::move(other._message_queue);
@@ -146,6 +161,34 @@ void PixhawkConnection::configure_termios() {
 void PixhawkConnection::connect() {
     if (_fd >= 0) {
         return;  // already open
+    }
+
+    if (_udp_port.has_value()) {
+        _fd = ::socket(AF_INET, SOCK_DGRAM | SOCK_NONBLOCK, 0);
+        if (_fd < 0) {
+            throw PixhawkConnectionError("Could not create UDP socket: " +
+                                         std::string(std::strerror(errno)));
+        }
+
+        struct sockaddr_in address {};
+        address.sin_family = AF_INET;
+        address.sin_port = htons(*_udp_port);
+        if (::inet_pton(AF_INET, _device.c_str(), &address.sin_addr) != 1) {
+            ::close(_fd);
+            _fd = -1;
+            throw PixhawkConnectionError("Invalid UDP bind address: " + _device);
+        }
+        if (::bind(_fd, reinterpret_cast<struct sockaddr*>(&address),
+                   sizeof(address)) != 0) {
+            const std::string message = std::strerror(errno);
+            ::close(_fd);
+            _fd = -1;
+            throw PixhawkConnectionError("Could not bind UDP " + _device + ":" +
+                                         std::to_string(*_udp_port) + ": " + message);
+        }
+        std::memset(&_status, 0, sizeof(_status));
+        _message_queue.clear();
+        return;
     }
 
     _fd = ::open(_device.c_str(), O_RDONLY | O_NOCTTY | O_NONBLOCK);
@@ -222,13 +265,20 @@ std::optional<mavlink_message_t> PixhawkConnection::receive_message(int timeout_
     if (ret == 0) {
         return std::nullopt;  // timeout
     }
-    if (pfd.revents & (POLLERR | POLLHUP | POLLNVAL)) {
-        throw PixhawkConnectionError("serial device disconnected");
+    if (pfd.revents & (POLLERR | POLLNVAL) ||
+        (!_udp_port.has_value() && (pfd.revents & POLLHUP))) {
+        throw PixhawkConnectionError(_udp_port.has_value()
+                                         ? "UDP socket error"
+                                         : "serial device disconnected");
     }
 
     // Read available bytes and feed to mavlink parser
-    uint8_t buf[256];
-    ssize_t n = ::read(_fd, buf, sizeof(buf));
+    // UDP preserves datagram boundaries. Use the maximum datagram size so a
+    // forwarded batch of MAVLink frames is never silently truncated.
+    std::vector<uint8_t> buf(_udp_port.has_value() ? 65535 : 256);
+    ssize_t n = _udp_port.has_value()
+                    ? ::recv(_fd, buf.data(), buf.size(), 0)
+                    : ::read(_fd, buf.data(), buf.size());
     if (n < 0) {
         if (errno == EAGAIN || errno == EWOULDBLOCK) {
             return std::nullopt;
@@ -240,7 +290,7 @@ std::optional<mavlink_message_t> PixhawkConnection::receive_message(int timeout_
         return std::nullopt;
     }
 
-    push_bytes(buf, static_cast<size_t>(n));
+    push_bytes(buf.data(), static_cast<size_t>(n));
     return pop_message();
 }
 

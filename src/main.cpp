@@ -5,6 +5,7 @@
 #include <csignal>
 #include <iostream>
 #include <limits>
+#include <memory>
 #include <string>
 #include <thread>
 
@@ -58,6 +59,8 @@ static void log_warning_events(const std::vector<WarningEvent>& events) {
 
 static TelemetryData run(const std::string& device,
                          int baud,
+                         const std::string& udp_bind_address,
+                         int udp_port,
                          double duration_s,
                          double heartbeat_timeout_s,
                          double reconnect_delay_s,
@@ -73,7 +76,13 @@ static TelemetryData run(const std::string& device,
         sensor_warning_delay_s,
         sensor_clear_delay_s);
 
-    PixhawkConnection manager(device, baud);
+    std::unique_ptr<PixhawkConnection> manager = udp_port > 0
+        ? std::make_unique<PixhawkConnection>(
+              static_cast<uint16_t>(udp_port), udp_bind_address)
+        : std::make_unique<PixhawkConnection>(device, baud);
+    const std::string endpoint = udp_port > 0
+        ? "UDP " + udp_bind_address + ":" + std::to_string(udp_port)
+        : device;
 
     std::unique_ptr<TelemetryRecorder> recorder;
     if (!record_path.empty()) {
@@ -99,9 +108,9 @@ static TelemetryData run(const std::string& device,
             }
 
             try {
-                manager.connect();
-                std::cerr << "Receiving telemetry from " << device << std::endl;
-                TelemetryReader reader(manager, &data);
+                manager->connect();
+                std::cerr << "Receiving telemetry from " << endpoint << std::endl;
+                TelemetryReader reader(*manager, &data);
 
                 while (!shutdown_requested.load()) {
                     if (deadline.has_value() &&
@@ -123,7 +132,7 @@ static TelemetryData run(const std::string& device,
                 log_warning_events(warning_engine.evaluate(data));
                 std::cerr << "Pixhawk connection unavailable: " << exc.what()
                           << std::endl;
-                manager.close();
+                manager->close();
 
                 if (deadline.has_value() &&
                     std::chrono::steady_clock::now() >= *deadline) {
@@ -143,13 +152,13 @@ static TelemetryData run(const std::string& device,
         }
     } catch (...) {
         data.connection.connected = false;
-        manager.close();
+        manager->close();
         if (recorder) recorder->close();
         throw;
     }
 
     data.connection.connected = false;
-    manager.close();
+    manager->close();
     if (recorder) recorder->close();
     return data;
 }
@@ -207,6 +216,8 @@ int main(int argc, char** argv) {
 
     std::string device = DEFAULT_DEVICE;
     int baud = DEFAULT_BAUD;
+    std::string udp_bind_address = "127.0.0.1";
+    int udp_port = 0;
     double duration = 0;  // 0 means run until Ctrl+C
     double heartbeat_timeout = 3.0;
     double reconnect_delay = 2.0;
@@ -221,6 +232,10 @@ int main(int argc, char** argv) {
                    "Serial device path (default: " + std::string(DEFAULT_DEVICE) + ")");
     app.add_option("--baud", baud,
                    "Baud rate (default: " + std::to_string(DEFAULT_BAUD) + ")");
+    app.add_option("--udp-port", udp_port,
+                   "Receive MAVLink over UDP instead of serial (1-65535)");
+    app.add_option("--udp-bind", udp_bind_address,
+                   "UDP bind address (default: 127.0.0.1)");
     app.add_option("--duration", duration,
                    "Stop after this many seconds (0 = run until Ctrl+C)");
     app.add_option("--heartbeat-timeout", heartbeat_timeout,
@@ -251,7 +266,8 @@ int main(int argc, char** argv) {
         std::cerr << "Error: --record cannot be combined with --replay" << std::endl;
         return 2;
     }
-    if (baud <= 0 || duration < 0 || heartbeat_timeout <= 0 ||
+    if (baud <= 0 || udp_port < 0 || udp_port > 65535 ||
+        udp_bind_address.empty() || duration < 0 || heartbeat_timeout <= 0 ||
         reconnect_delay < 0 || record_rate <= 0 || replay_speed < 0 ||
         sensor_warning_delay < 0 || sensor_clear_delay < 0) {
         std::cerr << "Error: numeric options must be within their documented "
@@ -264,7 +280,8 @@ int main(int argc, char** argv) {
             run_replay(replay_path, replay_speed,
                        sensor_warning_delay, sensor_clear_delay);
         } else {
-            run(device, baud, duration, heartbeat_timeout, reconnect_delay,
+            run(device, baud, udp_bind_address, udp_port,
+                duration, heartbeat_timeout, reconnect_delay,
                 record_path, record_rate,
                 sensor_warning_delay, sensor_clear_delay);
         }

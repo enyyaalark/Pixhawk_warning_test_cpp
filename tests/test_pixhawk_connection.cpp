@@ -4,7 +4,10 @@
 #include <cstring>
 #include <cstdlib>
 
+#include <arpa/inet.h>
 #include <fcntl.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
 #include <termios.h>
 #include <unistd.h>
 
@@ -34,6 +37,60 @@ TEST(PixhawkConnectionTest, EmptyDeviceRejected) {
 TEST(PixhawkConnectionTest, NonPositiveBaudRejected) {
     EXPECT_THROW(PixhawkConnection("/dev/ttyACM0", 0), std::invalid_argument);
     EXPECT_THROW(PixhawkConnection("/dev/ttyACM0", -1), std::invalid_argument);
+}
+
+TEST(PixhawkConnectionTest, ZeroUdpPortRejected) {
+    EXPECT_THROW(PixhawkConnection(static_cast<uint16_t>(0)),
+                 std::invalid_argument);
+}
+
+TEST(PixhawkConnectionTest, ReceivesMavlinkFrameOverUdp) {
+    int probe_fd = ::socket(AF_INET, SOCK_DGRAM, 0);
+    ASSERT_GE(probe_fd, 0);
+    struct sockaddr_in probe_address {};
+    probe_address.sin_family = AF_INET;
+    probe_address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    probe_address.sin_port = 0;
+    ASSERT_EQ(::bind(probe_fd, reinterpret_cast<struct sockaddr*>(&probe_address),
+                     sizeof(probe_address)), 0);
+    socklen_t address_length = sizeof(probe_address);
+    ASSERT_EQ(::getsockname(probe_fd,
+                            reinterpret_cast<struct sockaddr*>(&probe_address),
+                            &address_length), 0);
+    const uint16_t port = ntohs(probe_address.sin_port);
+    ::close(probe_fd);
+
+    PixhawkConnection manager(port, "127.0.0.1");
+    ASSERT_NO_THROW(manager.connect());
+    ASSERT_TRUE(manager.is_udp());
+
+    mavlink_message_t message;
+    mavlink_heartbeat_t heartbeat{};
+    heartbeat.type = 1;
+    heartbeat.autopilot = 12;
+    heartbeat.system_status = 3;
+    heartbeat.mavlink_version = 3;
+    mavlink_msg_heartbeat_encode(1, 1, &message, &heartbeat);
+    uint8_t buffer[MAVLINK_MAX_PACKET_LEN];
+    const uint16_t length = mavlink_msg_to_send_buffer(buffer, &message);
+
+    int sender_fd = ::socket(AF_INET, SOCK_DGRAM, 0);
+    ASSERT_GE(sender_fd, 0);
+    struct sockaddr_in destination {};
+    destination.sin_family = AF_INET;
+    destination.sin_port = htons(port);
+    ASSERT_EQ(::inet_pton(AF_INET, "127.0.0.1", &destination.sin_addr), 1);
+    ASSERT_EQ(::sendto(sender_fd, buffer, length, 0,
+                       reinterpret_cast<struct sockaddr*>(&destination),
+                       sizeof(destination)), length);
+
+    auto received = manager.receive_message(1000);
+    ASSERT_TRUE(received.has_value());
+    EXPECT_EQ(received->msgid, MAVLINK_MSG_ID_HEARTBEAT);
+    EXPECT_EQ(received->sysid, 1);
+
+    ::close(sender_fd);
+    manager.close();
 }
 
 TEST(PixhawkConnectionTest, PushBytesAndPopMessageWithValidMavlink2Frame) {

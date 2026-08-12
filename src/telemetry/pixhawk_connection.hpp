@@ -2,10 +2,11 @@
 
 /// Read-only MAVLink connection lifecycle management.
 ///
-/// Manages a serial port (via termios) and feeds raw bytes to the
-/// mavlink C parser.  Exposes a ``receive_message()`` method that
+/// Manages a read-only serial port or receive-only UDP socket and feeds raw
+/// bytes to the MAVLink C parser. Exposes a ``receive_message()`` method that
 /// mirrors pymavlink's ``recv_match()``.
 
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <stdexcept>
@@ -46,6 +47,13 @@ public:
     explicit PixhawkConnection(std::string device = DEFAULT_DEVICE,
                                int baud = DEFAULT_BAUD);
 
+    /// Construct a receive-only UDP listener.
+    ///
+    /// The socket binds to *bind_address* and *udp_port*. No UDP packets are
+    /// transmitted by this class.
+    explicit PixhawkConnection(uint16_t udp_port,
+                               std::string bind_address = "0.0.0.0");
+
     ~PixhawkConnection();
 
     // Non-copyable, movable
@@ -82,12 +90,15 @@ public:
     /// Accessors
     const std::string& device() const noexcept { return _device; }
     int baud() const noexcept { return _baud; }
+    bool is_udp() const noexcept { return _udp_port.has_value(); }
+    std::optional<uint16_t> udp_port() const noexcept { return _udp_port; }
 
 private:
     void configure_termios();
 
     std::string _device;
     int _baud;
+    std::optional<uint16_t> _udp_port;
     int _fd{-1};
 
     // MAVLink parser state
