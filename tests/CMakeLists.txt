@@ -5,6 +5,8 @@ add_executable(pixhawk_tests
   test_telemetry_recorder.cpp
   test_telemetry_replay.cpp
   test_warning_engine.cpp
+  test_warning_scheduler.cpp
+  test_tts.cpp
   test_main_replay.cpp)
 
 target_link_libraries(pixhawk_tests PRIVATE

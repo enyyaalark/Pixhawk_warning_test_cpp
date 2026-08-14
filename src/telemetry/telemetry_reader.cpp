@@ -137,11 +137,12 @@ void TelemetryReader::handle_heartbeat(const mavlink_message_t& msg, double now)
     conn.system_status = static_cast<int>(heartbeat.system_status);
 }
 
-void TelemetryReader::handle_battery_status(const mavlink_message_t& msg, double /*now*/) {
+void TelemetryReader::handle_battery_status(const mavlink_message_t& msg, double now) {
     mavlink_battery_status_t battery;
     mavlink_msg_battery_status_decode(&msg, &battery);
 
     auto& b = _data->battery;
+    b.last_update_monotonic_s = now;
     b.battery_id = static_cast<int>(battery.id);
 
     // Cell voltages: sum non-sentinel values, convert mV → V
@@ -173,11 +174,12 @@ void TelemetryReader::handle_battery_status(const mavlink_message_t& msg, double
                           : std::nullopt;
 }
 
-void TelemetryReader::handle_sys_status(const mavlink_message_t& msg, double /*now*/) {
+void TelemetryReader::handle_sys_status(const mavlink_message_t& msg, double now) {
     mavlink_sys_status_t sys;
     mavlink_msg_sys_status_decode(&msg, &sys);
 
     auto& s = _data->system;
+    s.last_update_monotonic_s = now;
 
     // Load: raw value / 10 = percent; valid range 0..1000
     int load = static_cast<int>(sys.load);
@@ -210,11 +212,12 @@ void TelemetryReader::handle_sys_status(const mavlink_message_t& msg, double /*n
     }
 }
 
-void TelemetryReader::handle_attitude(const mavlink_message_t& msg, double /*now*/) {
+void TelemetryReader::handle_attitude(const mavlink_message_t& msg, double now) {
     mavlink_attitude_t att;
     mavlink_msg_attitude_decode(&msg, &att);
 
     auto& a = _data->attitude;
+    a.last_update_monotonic_s = now;
     a.roll_rad = finite(static_cast<double>(att.roll));
     a.pitch_rad = finite(static_cast<double>(att.pitch));
     a.yaw_rad = finite(static_cast<double>(att.yaw));
@@ -223,30 +226,33 @@ void TelemetryReader::handle_attitude(const mavlink_message_t& msg, double /*now
     a.yaw_rate_rad_s = finite(static_cast<double>(att.yawspeed));
 }
 
-void TelemetryReader::handle_altitude(const mavlink_message_t& msg, double /*now*/) {
+void TelemetryReader::handle_altitude(const mavlink_message_t& msg, double now) {
     mavlink_altitude_t alt;
     mavlink_msg_altitude_decode(&msg, &alt);
 
     auto& m = _data->motion;
+    m.altitude_last_update_monotonic_s = now;
     m.relative_altitude_m = finite(static_cast<double>(alt.altitude_relative));
     m.local_altitude_m = finite(static_cast<double>(alt.altitude_local));
 }
 
-void TelemetryReader::handle_local_position_ned(const mavlink_message_t& msg, double /*now*/) {
+void TelemetryReader::handle_local_position_ned(const mavlink_message_t& msg, double now) {
     mavlink_local_position_ned_t pos;
     mavlink_msg_local_position_ned_decode(&msg, &pos);
 
     auto& m = _data->motion;
+    m.local_position_last_update_monotonic_s = now;
     m.velocity_north_m_s = finite(static_cast<double>(pos.vx));
     m.velocity_east_m_s = finite(static_cast<double>(pos.vy));
     m.velocity_down_m_s = finite(static_cast<double>(pos.vz));
 }
 
-void TelemetryReader::handle_estimator_status(const mavlink_message_t& msg, double /*now*/) {
+void TelemetryReader::handle_estimator_status(const mavlink_message_t& msg, double now) {
     mavlink_estimator_status_t est;
     mavlink_msg_estimator_status_decode(&msg, &est);
 
     auto& e = _data->estimator;
+    e.last_update_monotonic_s = now;
     e.flags = static_cast<int>(est.flags);
     e.velocity_ratio = finite(static_cast<double>(est.vel_ratio));
     e.horizontal_position_ratio = finite(static_cast<double>(est.pos_horiz_ratio));
@@ -256,11 +262,12 @@ void TelemetryReader::handle_estimator_status(const mavlink_message_t& msg, doub
     e.vertical_accuracy_m = finite(static_cast<double>(est.pos_vert_accuracy));
 }
 
-void TelemetryReader::handle_vibration(const mavlink_message_t& msg, double /*now*/) {
+void TelemetryReader::handle_vibration(const mavlink_message_t& msg, double now) {
     mavlink_vibration_t vib;
     mavlink_msg_vibration_decode(&msg, &vib);
 
     auto& v = _data->vibration;
+    v.last_update_monotonic_s = now;
     v.x_m_s2 = finite(static_cast<double>(vib.vibration_x));
     v.y_m_s2 = finite(static_cast<double>(vib.vibration_y));
     v.z_m_s2 = finite(static_cast<double>(vib.vibration_z));
@@ -269,10 +276,11 @@ void TelemetryReader::handle_vibration(const mavlink_message_t& msg, double /*no
     v.clipping_2 = static_cast<int>(vib.clipping_2);
 }
 
-void TelemetryReader::handle_extended_sys_state(const mavlink_message_t& msg, double /*now*/) {
+void TelemetryReader::handle_extended_sys_state(const mavlink_message_t& msg, double now) {
     mavlink_extended_sys_state_t state;
     mavlink_msg_extended_sys_state_decode(&msg, &state);
 
+    _data->flight_state.last_update_monotonic_s = now;
     _data->flight_state.landed_state = static_cast<int>(state.landed_state);
 }
 

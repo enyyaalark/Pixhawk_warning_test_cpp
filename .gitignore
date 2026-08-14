@@ -37,6 +37,18 @@ coverage/
 *.log
 /log/
 /logs/
+/.run/
+
+# Local TTS engines and model weights
+# These are downloaded/generated development dependencies and are too large
+# to store in this repository.  The small, reviewed WAV alert assets under
+# audio/ remain trackable.
+/models/
+/third_party/
+
+# Crash dumps
+core
+core.*
 
 # Editor and IDE settings
 .vscode/

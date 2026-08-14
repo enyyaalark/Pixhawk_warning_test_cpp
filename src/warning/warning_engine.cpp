@@ -27,18 +27,23 @@ WarningEngine::WarningEngine(
     std::function<std::chrono::system_clock::time_point()> utc_now,
     std::function<double()> clock,
     double sensor_activation_delay_s,
-    double sensor_clear_delay_s)
+    double sensor_clear_delay_s,
+    double sensor_data_timeout_s)
     : _utc_now(utc_now ? utc_now : []() {
           return std::chrono::system_clock::now();
       }),
       _clock(clock ? clock : utils::steady_seconds),
       _sensor_activation_delay_s(sensor_activation_delay_s),
-      _sensor_clear_delay_s(sensor_clear_delay_s) {
+      _sensor_clear_delay_s(sensor_clear_delay_s),
+      _sensor_data_timeout_s(sensor_data_timeout_s) {
     if (sensor_activation_delay_s < 0) {
         throw std::invalid_argument("sensor_activation_delay_s must not be negative");
     }
     if (sensor_clear_delay_s < 0) {
         throw std::invalid_argument("sensor_clear_delay_s must not be negative");
+    }
+    if (sensor_data_timeout_s <= 0) {
+        throw std::invalid_argument("sensor_data_timeout_s must be positive");
     }
 }
 
@@ -94,6 +99,27 @@ std::vector<WarningEvent> WarningEngine::evaluate_sensors(
     std::chrono::system_clock::time_point timestamp,
     double evaluation_time_s) {
 
+    std::vector<WarningEvent> events;
+
+    // Missing or stale SYS_STATUS cannot prove that a retained sensor state is
+    // still unhealthy. Clear active state and restart persistence tracking when
+    // fresh data returns.
+    if (!data.system.is_fresh(evaluation_time_s, _sensor_data_timeout_s)) {
+        _unhealthy_since.clear();
+        _healthy_since.clear();
+        for (const auto& name : _unhealthy_sensors) {
+            events.push_back(WarningEvent{
+                "SENSOR_UNHEALTHY_" + to_upper(name),
+                Severity::WARNING,
+                "Sensor health data became stale: " + name,
+                timestamp,
+                false,
+            });
+        }
+        _unhealthy_sensors.clear();
+        return events;
+    }
+
     // Build the set of currently unhealthy sensors
     std::unordered_set<std::string> currently_unhealthy;
     for (const auto& [name, state] : data.system.sensors) {
@@ -101,8 +127,6 @@ std::vector<WarningEvent> WarningEngine::evaluate_sensors(
             currently_unhealthy.insert(name);
         }
     }
-
-    std::vector<WarningEvent> events;
 
     // Activation: newly unhealthy sensors that persist beyond the activation delay
     for (const auto& name : currently_unhealthy) {

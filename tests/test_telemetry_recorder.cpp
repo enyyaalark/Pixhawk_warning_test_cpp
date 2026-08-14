@@ -35,6 +35,8 @@ TEST_F(TelemetryRecorderTest, RecordWritesNormalizedJsonLine) {
 
     TelemetryData data;
     data.attitude.pitch_rad = 0.25;
+    data.attitude.last_update_monotonic_s = 12.5;
+    data.motion.altitude_last_update_monotonic_s = 12.0;
 
     {
         TelemetryRecorder recorder(path, 5.0, nullptr, [t0]() { return t0; });
@@ -48,7 +50,11 @@ TEST_F(TelemetryRecorderTest, RecordWritesNormalizedJsonLine) {
     auto record = json::parse(line);
 
     EXPECT_EQ(record["schema_version"].get<int>(), SCHEMA_VERSION);
+    EXPECT_TRUE(record["recorded_monotonic_s"].is_number_float());
     EXPECT_EQ(record["telemetry"]["attitude"]["pitch_rad"].get<double>(), 0.25);
+    EXPECT_EQ(record["telemetry"]["attitude"]["last_update_monotonic_s"].get<double>(), 12.5);
+    EXPECT_EQ(record["telemetry"]["motion"]["altitude_last_update_monotonic_s"].get<double>(), 12.0);
+    EXPECT_TRUE(record["telemetry"]["motion"]["local_position_last_update_monotonic_s"].is_null());
     EXPECT_TRUE(record["telemetry"]["battery"]["voltage_v"].is_null());
 }
 

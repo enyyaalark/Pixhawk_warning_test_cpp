@@ -1,0 +1,469 @@
+固定翼飞行器姿态语音报警规则调研与规划
+========================================
+
+项目：Pixhawk_warning_test
+文档性质：预设规则调研与开发规划
+适用阶段：设计、SITL、遥测回放和台架验证
+
+重要说明
+--------
+
+本文件中的姿态角度和持续时间只是工程开发的初始预设，不是航空法规规定的通用安全限制，也不能代替具体飞机的飞行手册、制造商数据和试飞验证。
+
+本项目只能读取、标准化、判断和报警，不得向Pixhawk发送飞行控制、解锁、模式切换、参数修改或执行机构指令。
+
+
+一、核心调研结论
+----------------
+
+1. 俯仰角不等于迎角
+
+pitch表示机头相对于水平面的俯仰姿态；迎角AoA是机翼弦线与相对气流之间的夹角。
+
+飞机可以在机头不高的情况下失速，也可以在较大俯仰角下不失速。因此不能使用以下规则判断失速：
+
+    pitch > 30度 => 失速
+
+FAA资料说明，失速发生在超过临界迎角时，并且可以出现在任何空速和俯仰姿态。具体失速速度还会随重量、载荷和转弯状态变化。
+
+2. yaw不等于侧滑角
+
+当前项目中的yaw是航向姿态角，不能直接表示侧滑或偏航失控。
+
+判断侧滑通常还需要侧滑角传感器、横向加速度、空速和风估计，或者PX4提供的经过验证的侧滑估计。因此V1不应设置“yaw角过大”报警。
+
+当前可以考虑：
+
+    航向数据不可信
+    偏航角速度异常
+    磁力计异常
+
+3. 固定翼不存在适用于所有机型的统一安全角度
+
+FAA资料将约45度以上的坡度视为陡转弯范围。保持高度时，45度坡度约产生1.41G载荷，60度约产生2G，超过60度以后载荷快速增加。
+
+这些数据说明坡度增大会提高风险，但并不是所有飞机统一的法定报警线。最终阈值必须来自：
+
+    飞机制造商资料
+    机翼和结构设计
+    失速速度
+    最大允许速度
+    飞机重量和重心
+    PX4固定翼参数
+    实际试飞记录
+
+
+二、项目目前可以读取的数据
+--------------------------
+
+1. 连接数据
+
+    connected
+    last_heartbeat_time
+    autopilot_type
+    vehicle_type
+    system_status
+
+状态：已验证。
+可支持：飞控遥测中断报警。
+
+2. 姿态数据
+
+    roll
+    pitch
+    yaw
+    roll_rate
+    pitch_rate
+    yaw_rate
+
+状态：已经通过真实Pixhawk遥测验证。
+可支持：横滚、俯仰和姿态变化率报警。
+
+3. 飞行状态
+
+    landed_state
+
+状态：已经接入。
+用途：区分地面和空中，避免飞控板在桌面倾斜时触发飞行姿态报警。
+
+4. 高度和本地速度
+
+    relative_altitude
+    local_altitude
+    velocity_north
+    velocity_east
+    velocity_down
+
+状态：高度部分已验证；本地速度尚未完整验证。
+限制：当前数据不能直接当作可靠离地高度AGL。
+
+5. 估计器数据
+
+    flags
+    velocity_ratio
+    horizontal_position_ratio
+    vertical_position_ratio
+    magnetometer_ratio
+    horizontal_accuracy
+    vertical_accuracy
+
+状态：已接入。
+可支持：姿态估计失效和估计器状态异常报警。
+
+6. 系统和传感器健康
+
+    gyro
+    accelerometer
+    magnetometer
+    pressure sensor
+    GPS
+    attitude stabilization
+    其他SYS_STATUS传感器状态
+
+状态：已验证。
+异常条件必须为：
+
+    present AND enabled AND NOT healthy
+
+7. 振动数据
+
+    vibration_x
+    vibration_y
+    vibration_z
+    clipping_0
+    clipping_1
+    clipping_2
+
+状态：已接入。
+说明：clipping是累计计数器，不能因为绝对值非零就直接报警，应判断一段时间内是否继续增长。
+
+8. 当前不能可靠使用的数据
+
+    电池：没有连接真实电池和电源模块
+    空速：项目尚未解析
+    GPS：没有经过真实遥测验证
+    迎角：没有传感器或遥测字段
+    离地高度：没有可靠AGL来源
+
+
+三、建议的预设报警规则
+----------------------
+
+以下角度只能用于SITL、回放和台架实验。正式飞行前必须由具体机型参数替换。
+
+A. 当前优先实现的规则
+
+P0：TELEMETRY_LOST
+条件：系统已经收到过心跳，随后心跳超过连接超时时间仍未更新。
+语音：“飞控遥测中断”。
+
+P0：ATTITUDE_DATA_LOST
+条件：飞机处于空中，姿态消息超过1秒没有更新。
+语音：“姿态数据中断”。
+
+P0：ATTITUDE_ESTIMATE_INVALID
+条件：飞机处于空中，估计器不再报告姿态估计有效，并持续1秒。
+语音：“姿态估计失效”。
+
+P0：IMU_UNHEALTHY
+条件：飞机处于空中，陀螺仪或加速度计存在、启用但不健康。
+语音：“惯性传感器异常”。
+
+P1：BANK_EXCESSIVE
+实验初值：abs(roll)大于或等于60度并持续1秒。
+语音：“坡度过大”。
+
+P1：BANK_CRITICAL
+实验初值：abs(roll)大于或等于75度并持续0.5秒。
+语音：“危险坡度”。
+
+P1：PITCH_HIGH
+实验初值：pitch大于或等于正30度并持续1秒。
+语音：“抬头角过大”。
+
+P1：PITCH_LOW
+实验初值：pitch小于或等于负25度并持续1秒。
+语音：“俯冲角过大”。
+
+P2：BANK_CAUTION
+实验初值：abs(roll)大于或等于45度并持续2秒。
+语音：“注意坡度”。
+
+P2：PITCH_HIGH_CAUTION
+实验初值：pitch大于或等于正20度并持续2秒。
+语音：“注意抬头姿态”。
+
+P2：PITCH_LOW_CAUTION
+实验初值：pitch小于或等于负15度并持续2秒。
+语音：“注意俯冲姿态”。
+
+P2：ATTITUDE_RATE_HIGH
+条件：横滚、俯仰或偏航角速度超过具体机型配置值，并持续规定时间。
+语音：“姿态变化过快”。
+
+不建议现在为该规则设置正式数值，因为不同尺寸、结构和用途的固定翼飞机角速度差异较大。
+
+P2：MAG_UNHEALTHY
+条件：磁力计存在、启用但不健康。
+语音：“航向数据不可靠”。
+
+P2：ESTIMATOR_DEGRADED
+条件：估计器innovation ratio持续超过配置阈值，或者对应估计有效标志丢失。
+语音：“导航估计异常”。
+
+MAVLink文档说明，innovation ratio大于1表示相应测量被估计器拒绝，可作为候选判据。但必须先确认数据有效、不是NaN并且没有过期。
+
+P3：VIBRATION_HIGH
+条件：振动持续超过经过台架和飞行验证的机型阈值，或者clipping计数器持续增长。
+语音：“飞行器振动过大”。
+
+
+B. 增加可靠空速数据后实现的规则
+
+P0：STALL_WARNING
+条件：有效CAS/IAS接近经过机型确认的动态失速边界，或者可靠AoA/失速状态触发。
+语音：“失速警告”。
+
+P0：STALL
+条件：可靠AoA传感器或飞控确认已经进入失速状态。
+语音：“失速，降低迎角”。
+
+P1：AIRSPEED_LOW
+条件：空速低于机型最小安全空速并持续规定时间。
+语音：“空速过低”。
+
+P1：OVERSPEED
+条件：空速接近或超过具体机型最大允许速度。
+语音：“速度过高”。
+
+P2：AIRSPEED_DATA_INVALID
+条件：空速传感器不健康、数据无效或消息过期。
+语音：“空速数据失效”。
+
+PX4中与固定翼空速相关的机型参数包括：
+
+    FW_AIRSPD_STALL
+    FW_AIRSPD_MIN
+    FW_AIRSPD_TRIM
+    FW_AIRSPD_MAX
+
+这些参数必须由具体飞机配置，不能直接把PX4默认值当作本项目的安全阈值。
+
+建议以后解析MAVLink VFR_HUD，并增加：
+
+    airspeed_m_s
+    airspeed_valid
+    airspeed_last_update_monotonic_s
+    groundspeed_m_s
+    climb_rate_m_s
+
+
+C. 增加可靠高度、GPS或测距数据后实现的规则
+
+P0：NEAR_GROUND_RAPID_DESCENT
+语音：“近地下降过快”。
+
+P0：TERRAIN_PROXIMITY
+语音：“高度过低”。
+
+P1：DESCENT_RATE_HIGH
+语音：“下降率过大”。
+
+P1：ALTITUDE_LOSS_AFTER_TAKEOFF
+语音：“起飞后高度下降”。
+
+P2：GPS_LOST
+语音：“卫星定位失效”。
+
+P2：HORIZONTAL_POSITION_INVALID
+语音：“位置数据失效”。
+
+P3：HEADING_DEVIATION
+语音：“航向偏离”。
+
+当前relative_altitude和local_altitude不能自动视为真实AGL。没有可靠地面参考、测距传感器或地形数据库时，不应实现“即将撞地”报警。
+
+
+四、姿态规则的共同前置条件
+--------------------------
+
+只有满足以下条件，才允许判断姿态角报警：
+
+    遥测连接正常
+    姿态数据存在且没有过期
+    姿态估计有效
+    landed_state表示飞机处于空中
+    固定翼规则已经启用
+    阈值已经由具体机型负责人确认
+
+如果数据缺失，系统应进入UNKNOWN状态或产生“数据不可用”事件，不能把缺失数据判断为正常或异常。
+
+
+五、多项报警同时出现时的优先级
+--------------------------------
+
+P0：立即危险或关键数据丢失
+
+    失速
+    姿态估计失效
+    IMU失效
+    姿态数据中断
+    飞控遥测中断
+
+P1：高风险飞行状态
+
+    超速
+    近地快速下降
+    危险坡度
+    俯冲角过大
+    空速过低
+
+P2：需要及时注意
+
+    姿态角接近限制
+    姿态变化过快
+    估计器退化
+    磁力计或GPS异常
+    电池低
+
+P3：状态提示
+
+    振动偏高
+    通信丢包增长
+    单个非关键传感器异常
+    状态恢复
+
+同一严重等级内部建议顺序：
+
+    飞行包线危险
+    -> 姿态和导航数据失效
+    -> 高度与能量危险
+    -> 关键传感器
+    -> 电源与通信
+    -> 一般状态提示
+
+FAA告警设计原则要求按照紧迫性确定告警优先级，只对确实需要操作员注意的异常发出告警，并避免无意义或相互竞争的重复告警。
+
+
+六、TTS语音调度建议
+-------------------
+
+1. 同一时刻只播放一条语音。
+
+2. P0可以打断P1、P2和P3。
+
+3. P1可以打断P2和P3，但不能打断P0。
+
+4. 相同报警在持续期间使用冷却机制，不能每次循环都重新播报。
+
+5. 相关姿态报警可以合并，例如：
+
+    “姿态危险，右坡度过大，同时快速下降”。
+
+6. 一次最多播报两个主要问题，避免长句掩盖最紧急信息。
+
+7. 只为重要事件播放恢复语音，例如：
+
+    “姿态恢复”。
+    “遥测连接恢复”。
+
+不需要为每个瞬时传感器变化播放恢复语音。
+
+初始重复间隔建议：
+
+    P0：每2至3秒，可以持续重复
+    P1：每5至10秒
+    P2：首次播报，冷却15至30秒
+    P3：通常只播报一次或只写入日志
+
+这些时间是人机交互的开发预设，不是航空法规规定值。
+
+
+七、规则状态机建议
+------------------
+
+每条规则不应只是一个简单if判断，建议统一使用：
+
+    UNKNOWN
+       | 数据有效
+       v
+    NORMAL
+       | 超过激活阈值
+       v
+    PENDING
+       | 达到最小异常持续时间
+       v
+    ACTIVE
+       | 回到解除阈值
+       v
+    CLEARING
+       | 达到最小恢复持续时间
+       v
+    NORMAL
+
+每条规则应支持：
+
+    数据新鲜度
+    None、NaN和无效值处理
+    最小异常持续时间
+    激活与解除使用不同阈值（迟滞）
+    报警冷却时间
+    空中和地面过滤
+    严重度升级
+    相同报警去重
+
+坡度规则示例：
+
+    激活：abs(roll) >= 60度，持续1秒
+    解除：abs(roll) <= 55度，持续2秒
+
+这样可以避免角度在59至60度附近变化时反复报警。
+
+
+八、建议的实施顺序
+------------------
+
+1. 完善报警规则配置结构，但所有具体机型飞行包线阈值默认禁用。
+
+2. 从HEARTBEAT中标准化armed状态和飞行模式，与landed_state共同判断飞行阶段。
+
+3. 首先实现姿态数据过期、姿态估计失效和关键IMU异常规则。
+
+4. 实现横滚、俯仰和角速度规则，并使用记录遥测和人工构造数据回放验证状态机。
+
+5. 解析VFR_HUD，增加空速、地速和爬升率。
+
+6. 确定具体固定翼机型以后，填写失速速度、最大速度和允许姿态范围。
+
+7. 在SITL中验证多报警排序、抑制、升级和TTS抢占。
+
+8. 最后进行无螺旋桨整机测试和受控飞行验证。
+
+当前最适合首先编码的规则：
+
+    ATTITUDE_DATA_LOST
+    ATTITUDE_ESTIMATE_INVALID
+    BANK_EXCESSIVE
+    PITCH_HIGH
+    PITCH_LOW
+
+其中后三项必须保持实验性、配置化并默认关闭，直到最终固定翼机型和飞行包线得到确认。
+
+
+九、主要资料来源
+----------------
+
+FAA Pilot's Handbook of Aeronautical Knowledge：
+https://www.faa.gov/regulations_policies/handbooks_manuals/aviation/phak
+
+FAA Airplane Flying Handbook：
+https://www.faa.gov/regulations_policies/handbooks_manuals/aviation/airplane_handbook
+
+FAA AC 25.1322-1 Flightcrew Alerting：
+https://www.faa.gov/documentLibrary/media/Advisory_Circular/AC_25.1322-1.pdf
+
+MAVLink Common Message Set：
+https://mavlink.io/en/messages/common.html
+
+PX4 v1.12 Parameter Reference：
+https://docs.px4.io/v1.12/en/advanced_config/parameter_reference

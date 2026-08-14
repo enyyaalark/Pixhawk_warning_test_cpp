@@ -101,6 +101,35 @@ TEST_F(TelemetryReaderTest, NanAttitudeIsUnavailable) {
     ASSERT_TRUE(_data.attitude.pitch_rad.has_value());
     EXPECT_NEAR(_data.attitude.pitch_rad.value(), 0.2, 1e-6);
     EXPECT_FALSE(_data.attitude.pitch_rate_rad_s.has_value());
+    ASSERT_TRUE(_data.attitude.last_update_monotonic_s.has_value());
+    EXPECT_DOUBLE_EQ(_data.attitude.last_update_monotonic_s.value(), 10.0);
+}
+
+TEST_F(TelemetryReaderTest, MotionSourcesUpdateIndependentTimestamps) {
+    mavlink_message_t altitude_message;
+    mavlink_altitude_t altitude{};
+    altitude.altitude_relative = 1.5f;
+    altitude.altitude_local = 2.5f;
+    mavlink_msg_altitude_encode(1, 1, &altitude_message, &altitude);
+
+    _clock_value = 30.0;
+    _reader->process_message(altitude_message);
+    ASSERT_TRUE(_data.motion.altitude_last_update_monotonic_s.has_value());
+    EXPECT_DOUBLE_EQ(_data.motion.altitude_last_update_monotonic_s.value(), 30.0);
+    EXPECT_FALSE(_data.motion.local_position_last_update_monotonic_s.has_value());
+
+    mavlink_message_t position_message;
+    mavlink_local_position_ned_t position{};
+    position.vx = 1.0f;
+    position.vy = 2.0f;
+    position.vz = 3.0f;
+    mavlink_msg_local_position_ned_encode(1, 1, &position_message, &position);
+
+    _clock_value = 31.0;
+    _reader->process_message(position_message);
+    EXPECT_DOUBLE_EQ(
+        _data.motion.local_position_last_update_monotonic_s.value(), 31.0);
+    EXPECT_DOUBLE_EQ(_data.motion.altitude_last_update_monotonic_s.value(), 30.0);
 }
 
 TEST_F(TelemetryReaderTest, HeartbeatMarksConnectionAndRecordsTime) {

@@ -55,6 +55,7 @@ static json to_json(const ConnectionTelemetry& c) {
 
 static json to_json(const BatteryTelemetry& b) {
     json j;
+    set_optional(j, "last_update_monotonic_s", b.last_update_monotonic_s);
     set_optional(j, "battery_id", b.battery_id);
     set_optional(j, "voltage_v", b.voltage_v);
     set_optional(j, "current_a", b.current_a);
@@ -65,6 +66,7 @@ static json to_json(const BatteryTelemetry& b) {
 
 static json to_json(const SystemTelemetry& s) {
     json j;
+    set_optional(j, "last_update_monotonic_s", s.last_update_monotonic_s);
     set_optional(j, "load_percent", s.load_percent);
     set_optional(j, "communication_drop_percent", s.communication_drop_percent);
     set_optional(j, "communication_errors", s.communication_errors);
@@ -78,6 +80,7 @@ static json to_json(const SystemTelemetry& s) {
 
 static json to_json(const AttitudeTelemetry& a) {
     json j;
+    set_optional(j, "last_update_monotonic_s", a.last_update_monotonic_s);
     set_optional(j, "roll_rad", a.roll_rad);
     set_optional(j, "pitch_rad", a.pitch_rad);
     set_optional(j, "yaw_rad", a.yaw_rad);
@@ -89,6 +92,10 @@ static json to_json(const AttitudeTelemetry& a) {
 
 static json to_json(const MotionTelemetry& m) {
     json j;
+    set_optional(j, "altitude_last_update_monotonic_s",
+                 m.altitude_last_update_monotonic_s);
+    set_optional(j, "local_position_last_update_monotonic_s",
+                 m.local_position_last_update_monotonic_s);
     set_optional(j, "relative_altitude_m", m.relative_altitude_m);
     set_optional(j, "local_altitude_m", m.local_altitude_m);
     set_optional(j, "velocity_north_m_s", m.velocity_north_m_s);
@@ -99,6 +106,7 @@ static json to_json(const MotionTelemetry& m) {
 
 static json to_json(const EstimatorTelemetry& e) {
     json j;
+    set_optional(j, "last_update_monotonic_s", e.last_update_monotonic_s);
     set_optional(j, "flags", e.flags);
     set_optional(j, "velocity_ratio", e.velocity_ratio);
     set_optional(j, "horizontal_position_ratio", e.horizontal_position_ratio);
@@ -111,6 +119,7 @@ static json to_json(const EstimatorTelemetry& e) {
 
 static json to_json(const VibrationTelemetry& v) {
     json j;
+    set_optional(j, "last_update_monotonic_s", v.last_update_monotonic_s);
     set_optional(j, "x_m_s2", v.x_m_s2);
     set_optional(j, "y_m_s2", v.y_m_s2);
     set_optional(j, "z_m_s2", v.z_m_s2);
@@ -122,6 +131,7 @@ static json to_json(const VibrationTelemetry& v) {
 
 static json to_json(const FlightStateTelemetry& f) {
     json j;
+    set_optional(j, "last_update_monotonic_s", f.last_update_monotonic_s);
     set_optional(j, "landed_state", f.landed_state);
     return j;
 }
@@ -196,6 +206,7 @@ void TelemetryRecorder::record(const TelemetryData& data) {
     json record;
     record["schema_version"] = SCHEMA_VERSION;
     record["recorded_at"] = utils::format_iso8601(_utc_now());
+    record["recorded_monotonic_s"] = _clock();
     record["telemetry"] = to_json(data);
 
     std::function<void(const json&)> reject_non_finite = [&](const json& value) {

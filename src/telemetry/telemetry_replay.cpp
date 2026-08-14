@@ -49,6 +49,7 @@ static ConnectionTelemetry connection_from_json(const json& j) {
 
 static BatteryTelemetry battery_from_json(const json& j) {
     BatteryTelemetry b;
+    get_optional(j, "last_update_monotonic_s", b.last_update_monotonic_s);
     get_optional(j, "battery_id", b.battery_id);
     get_optional(j, "voltage_v", b.voltage_v);
     get_optional(j, "current_a", b.current_a);
@@ -59,6 +60,7 @@ static BatteryTelemetry battery_from_json(const json& j) {
 
 static SystemTelemetry system_from_json(const json& j) {
     SystemTelemetry s;
+    get_optional(j, "last_update_monotonic_s", s.last_update_monotonic_s);
     get_optional(j, "load_percent", s.load_percent);
     get_optional(j, "communication_drop_percent", s.communication_drop_percent);
     get_optional(j, "communication_errors", s.communication_errors);
@@ -72,6 +74,7 @@ static SystemTelemetry system_from_json(const json& j) {
 
 static AttitudeTelemetry attitude_from_json(const json& j) {
     AttitudeTelemetry a;
+    get_optional(j, "last_update_monotonic_s", a.last_update_monotonic_s);
     get_optional(j, "roll_rad", a.roll_rad);
     get_optional(j, "pitch_rad", a.pitch_rad);
     get_optional(j, "yaw_rad", a.yaw_rad);
@@ -83,6 +86,10 @@ static AttitudeTelemetry attitude_from_json(const json& j) {
 
 static MotionTelemetry motion_from_json(const json& j) {
     MotionTelemetry m;
+    get_optional(j, "altitude_last_update_monotonic_s",
+                 m.altitude_last_update_monotonic_s);
+    get_optional(j, "local_position_last_update_monotonic_s",
+                 m.local_position_last_update_monotonic_s);
     get_optional(j, "relative_altitude_m", m.relative_altitude_m);
     get_optional(j, "local_altitude_m", m.local_altitude_m);
     get_optional(j, "velocity_north_m_s", m.velocity_north_m_s);
@@ -93,6 +100,7 @@ static MotionTelemetry motion_from_json(const json& j) {
 
 static EstimatorTelemetry estimator_from_json(const json& j) {
     EstimatorTelemetry e;
+    get_optional(j, "last_update_monotonic_s", e.last_update_monotonic_s);
     get_optional(j, "flags", e.flags);
     get_optional(j, "velocity_ratio", e.velocity_ratio);
     get_optional(j, "horizontal_position_ratio", e.horizontal_position_ratio);
@@ -105,6 +113,7 @@ static EstimatorTelemetry estimator_from_json(const json& j) {
 
 static VibrationTelemetry vibration_from_json(const json& j) {
     VibrationTelemetry v;
+    get_optional(j, "last_update_monotonic_s", v.last_update_monotonic_s);
     get_optional(j, "x_m_s2", v.x_m_s2);
     get_optional(j, "y_m_s2", v.y_m_s2);
     get_optional(j, "z_m_s2", v.z_m_s2);
@@ -116,6 +125,7 @@ static VibrationTelemetry vibration_from_json(const json& j) {
 
 static FlightStateTelemetry flight_state_from_json(const json& j) {
     FlightStateTelemetry f;
+    get_optional(j, "last_update_monotonic_s", f.last_update_monotonic_s);
     get_optional(j, "landed_state", f.landed_state);
     return f;
 }
@@ -185,6 +195,7 @@ std::vector<ReplaySample> TelemetryReplay::samples() {
 
         ReplaySample sample;
         sample.recorded_at = recorded_at;
+        get_optional(record, "recorded_monotonic_s", sample.recorded_monotonic_s);
         sample.telemetry = telemetry_from_json(record.at("telemetry"));
         result.push_back(std::move(sample));
     }

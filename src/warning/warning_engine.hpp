@@ -21,7 +21,8 @@ public:
         std::function<std::chrono::system_clock::time_point()> utc_now = nullptr,
         std::function<double()> clock = nullptr,
         double sensor_activation_delay_s = 1.0,
-        double sensor_clear_delay_s = 1.0);
+        double sensor_clear_delay_s = 1.0,
+        double sensor_data_timeout_s = 3.0);
 
     /// Return only newly activated or newly cleared warning events.
     ///
@@ -46,6 +47,7 @@ private:
     std::function<double()> _clock;
     double _sensor_activation_delay_s;
     double _sensor_clear_delay_s;
+    double _sensor_data_timeout_s;
 
     bool _connection_lost_active{false};
     std::unordered_set<std::string> _unhealthy_sensors;

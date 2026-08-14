@@ -12,13 +12,17 @@ using namespace telemetry;
 
 // Helper: construct a JSONL record line
 static std::string make_record_line(const std::string& recorded_at,
-                                    const TelemetryData& data) {
+                                    const TelemetryData& data,
+                                    std::optional<double> recorded_monotonic_s = std::nullopt) {
     // We need to reuse the to_json logic from the recorder.
     // For testing, build the JSON manually.
 
     nlohmann::json record;
     record["schema_version"] = SCHEMA_VERSION;
     record["recorded_at"] = recorded_at;
+    if (recorded_monotonic_s.has_value()) {
+        record["recorded_monotonic_s"] = recorded_monotonic_s.value();
+    }
 
     nlohmann::json telemetry;
     telemetry["connection"] = {{"connected", false}};
@@ -33,6 +37,14 @@ static std::string make_record_line(const std::string& recorded_at,
     // Add test-specific fields
     if (data.attitude.yaw_rad.has_value()) {
         telemetry["attitude"]["yaw_rad"] = data.attitude.yaw_rad.value();
+    }
+    if (data.attitude.last_update_monotonic_s.has_value()) {
+        telemetry["attitude"]["last_update_monotonic_s"] =
+            data.attitude.last_update_monotonic_s.value();
+    }
+    if (data.motion.altitude_last_update_monotonic_s.has_value()) {
+        telemetry["motion"]["altitude_last_update_monotonic_s"] =
+            data.motion.altitude_last_update_monotonic_s.value();
     }
 
     record["telemetry"] = telemetry;
@@ -68,13 +80,33 @@ TEST_F(TelemetryReplayTest, SamplesReconstructNestedTelemetry) {
 
     TelemetryData expected;
     expected.attitude.yaw_rad = 1.25;
+    expected.attitude.last_update_monotonic_s = 42.0;
+    expected.motion.altitude_last_update_monotonic_s = 41.5;
 
-    write_lines(path, {make_record_line("2026-08-11T12:00:00Z", expected)});
+    write_lines(path, {make_record_line("2026-08-11T12:00:00Z", expected, 42.5)});
 
     auto samples = TelemetryReplay(path).samples();
     ASSERT_EQ(samples.size(), 1);
     ASSERT_TRUE(samples[0].telemetry.attitude.yaw_rad.has_value());
     EXPECT_DOUBLE_EQ(samples[0].telemetry.attitude.yaw_rad.value(), 1.25);
+    EXPECT_DOUBLE_EQ(
+        samples[0].telemetry.attitude.last_update_monotonic_s.value(), 42.0);
+    EXPECT_DOUBLE_EQ(
+        samples[0].telemetry.motion.altitude_last_update_monotonic_s.value(), 41.5);
+    EXPECT_DOUBLE_EQ(samples[0].recorded_monotonic_s.value(), 42.5);
+}
+
+TEST_F(TelemetryReplayTest, OldRecordWithoutFreshnessMetadataRemainsReadable) {
+    auto path = _tmpdir / "old_replay.jsonl";
+    TelemetryData data;
+    data.attitude.yaw_rad = 0.5;
+    write_lines(path, {make_record_line("2026-08-11T12:00:00Z", data)});
+
+    auto samples = TelemetryReplay(path).samples();
+    ASSERT_EQ(samples.size(), 1);
+    EXPECT_FALSE(samples[0].telemetry.attitude.last_update_monotonic_s.has_value());
+    EXPECT_FALSE(samples[0].telemetry.motion.altitude_last_update_monotonic_s.has_value());
+    EXPECT_FALSE(samples[0].recorded_monotonic_s.has_value());
 }
 
 TEST_F(TelemetryReplayTest, ReplayReproducesTimingAtSelectedSpeed) {

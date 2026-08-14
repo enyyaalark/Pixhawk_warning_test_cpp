@@ -22,6 +22,7 @@ FetchContent_MakeAvailable(cli11)
 
 # Google Test
 option(BUILD_TESTS "Build tests" ON)
+option(BUILD_PFD "Build the Qt 5 primary flight display prototype" ON)
 if(BUILD_TESTS)
   FetchContent_Declare(googletest
     GIT_REPOSITORY https://github.com/google/googletest.git

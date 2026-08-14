@@ -1,0 +1,9 @@
+<RCC>
+  <qresource prefix="/qml">
+    <file alias="Main.qml">qml/Main.qml</file>
+    <file alias="AttitudeIndicator.qml">qml/AttitudeIndicator.qml</file>
+    <file alias="HeadingCompass.qml">qml/HeadingCompass.qml</file>
+    <file alias="StatusCard.qml">qml/StatusCard.qml</file>
+    <file alias="FlightTape.qml">qml/FlightTape.qml</file>
+  </qresource>
+</RCC>

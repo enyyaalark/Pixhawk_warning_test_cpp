@@ -21,6 +21,7 @@ public:
 /// One recorded normalized snapshot and its wall-clock recording time.
 struct ReplaySample {
     std::chrono::system_clock::time_point recorded_at;
+    std::optional<double> recorded_monotonic_s;
     TelemetryData telemetry;
 };
 

@@ -67,14 +67,16 @@ static TelemetryData run(const std::string& device,
                          const std::string& record_path,
                          double record_rate_hz,
                          double sensor_warning_delay_s,
-                         double sensor_clear_delay_s) {
+                         double sensor_clear_delay_s,
+                         double sensor_data_timeout_s) {
 
     TelemetryData data;
     WarningEngine warning_engine(
         nullptr,  // default utc_now
         nullptr,  // default clock
         sensor_warning_delay_s,
-        sensor_clear_delay_s);
+        sensor_clear_delay_s,
+        sensor_data_timeout_s);
 
     std::unique_ptr<PixhawkConnection> manager = udp_port > 0
         ? std::make_unique<PixhawkConnection>(
@@ -170,13 +172,15 @@ static TelemetryData run(const std::string& device,
 static TelemetryData run_replay(const std::string& replay_path,
                                 double replay_speed,
                                 double sensor_warning_delay_s,
-                                double sensor_clear_delay_s) {
+                                double sensor_clear_delay_s,
+                                double sensor_data_timeout_s) {
 
     WarningEngine warning_engine(
         nullptr,
         nullptr,
         sensor_warning_delay_s,
-        sensor_clear_delay_s);
+        sensor_clear_delay_s,
+        sensor_data_timeout_s);
 
     TelemetryReplay replay(replay_path, [](double s) {
         std::this_thread::sleep_for(std::chrono::duration<double>(s));
@@ -194,8 +198,9 @@ static TelemetryData run_replay(const std::string& replay_path,
         log_warning_events(warning_engine.evaluate(
             latest,
             sample.recorded_at,
-            std::chrono::duration<double>(
-                sample.recorded_at.time_since_epoch()).count()));
+            sample.recorded_monotonic_s.value_or(
+                std::chrono::duration<double>(
+                    sample.recorded_at.time_since_epoch()).count())));
     }
 
     std::cerr << "Replayed " << samples.size() << " telemetry snapshots from "
@@ -227,6 +232,7 @@ int main(int argc, char** argv) {
     double replay_speed = 1.0;
     double sensor_warning_delay = 1.0;
     double sensor_clear_delay = 1.0;
+    double sensor_data_timeout = 3.0;
 
     app.add_option("--device", device,
                    "Serial device path (default: " + std::string(DEFAULT_DEVICE) + ")");
@@ -254,6 +260,8 @@ int main(int argc, char** argv) {
                    "Sensor warning activation delay in seconds");
     app.add_option("--sensor-clear-delay", sensor_clear_delay,
                    "Sensor warning clear delay in seconds");
+    app.add_option("--sensor-data-timeout", sensor_data_timeout,
+                   "Maximum SYS_STATUS age used for sensor warnings");
 
     try {
         app.parse(argc, argv);
@@ -269,7 +277,8 @@ int main(int argc, char** argv) {
     if (baud <= 0 || udp_port < 0 || udp_port > 65535 ||
         udp_bind_address.empty() || duration < 0 || heartbeat_timeout <= 0 ||
         reconnect_delay < 0 || record_rate <= 0 || replay_speed < 0 ||
-        sensor_warning_delay < 0 || sensor_clear_delay < 0) {
+        sensor_warning_delay < 0 || sensor_clear_delay < 0 ||
+        sensor_data_timeout <= 0) {
         std::cerr << "Error: numeric options must be within their documented "
                      "positive ranges" << std::endl;
         return 2;
@@ -278,12 +287,14 @@ int main(int argc, char** argv) {
     try {
         if (!replay_path.empty()) {
             run_replay(replay_path, replay_speed,
-                       sensor_warning_delay, sensor_clear_delay);
+                       sensor_warning_delay, sensor_clear_delay,
+                       sensor_data_timeout);
         } else {
             run(device, baud, udp_bind_address, udp_port,
                 duration, heartbeat_timeout, reconnect_delay,
                 record_path, record_rate,
-                sensor_warning_delay, sensor_clear_delay);
+                sensor_warning_delay, sensor_clear_delay,
+                sensor_data_timeout);
         }
     } catch (const std::exception& exc) {
         std::cerr << "Fatal: " << exc.what() << std::endl;

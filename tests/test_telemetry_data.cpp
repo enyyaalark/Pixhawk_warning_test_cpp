@@ -53,3 +53,23 @@ TEST(TelemetryDataTest, NestedSubStructsDefaultConstructed) {
     EXPECT_FALSE(d.vibration.x_m_s2.has_value());
     EXPECT_FALSE(d.flight_state.landed_state.has_value());
 }
+
+TEST(TelemetryDataTest, FreshnessRequiresRecentCompatibleTimestamp) {
+    AttitudeTelemetry attitude;
+    EXPECT_FALSE(attitude.is_fresh(10.0, 0.5));
+
+    attitude.last_update_monotonic_s = 9.5;
+    EXPECT_TRUE(attitude.is_fresh(10.0, 0.5));
+    EXPECT_FALSE(attitude.is_fresh(10.001, 0.5));
+    EXPECT_FALSE(attitude.is_fresh(9.0, 0.5));
+    EXPECT_FALSE(attitude.is_fresh(10.0, -1.0));
+}
+
+TEST(TelemetryDataTest, MotionSourcesHaveIndependentFreshness) {
+    MotionTelemetry motion;
+    motion.altitude_last_update_monotonic_s = 20.0;
+    motion.local_position_last_update_monotonic_s = 15.0;
+
+    EXPECT_TRUE(motion.altitude_is_fresh(20.25, 0.5));
+    EXPECT_FALSE(motion.local_position_is_fresh(20.25, 0.5));
+}
